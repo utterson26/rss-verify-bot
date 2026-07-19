@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Restless Spirits Society — Verify</title>
+<style>
+  :root { --bg:#0b0d10; --card:#14181d; --line:#232a31; --green:#2dd478; --text:#e8edf2; --muted:#9aa7b2; --red:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: radial-gradient(1200px 600px at 50% -10%, #12181d, var(--bg)); color:var(--text);
+         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line);
+          border-radius:18px; padding:32px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+  .logo { width:72px; height:72px; border-radius:50%; border:3px solid var(--green); margin:0 auto 14px;
+          display:flex; align-items:center; justify-content:center; font-weight:800; letter-spacing:1px; font-size:20px; }
+  h1 { font-size:20px; text-align:center; margin:0 0 4px; }
+  p.sub { text-align:center; color:var(--muted); margin:0 0 22px; font-size:14px; }
+  button { width:100%; border:0; border-radius:12px; padding:14px 16px; font-size:15px; font-weight:700;
+           cursor:pointer; margin-top:12px; transition:.15s; }
+  .primary { background:var(--green); color:#04150c; }
+  .primary:hover { filter:brightness(1.08); }
+  .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .status { margin-top:18px; padding:12px 14px; border-radius:10px; font-size:14px; text-align:center; display:none; }
+  .status.show { display:block; }
+  .ok { background:rgba(45,212,120,.12); border:1px solid rgba(45,212,120,.35); color:var(--green); }
+  .err { background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.35); color:var(--red); }
+  .info { background:rgba(255,255,255,.04); border:1px solid var(--line); color:var(--muted); }
+  .safety { margin-top:22px; font-size:12px; color:var(--muted); line-height:1.5; border-top:1px solid var(--line); padding-top:16px; }
+  .safety b { color:var(--text); }
+  .addr { font-family: ui-monospace, monospace; font-size:12px; color:var(--muted); text-align:center; margin-top:8px; word-break:break-all; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">RSS</div>
+    <h1>Verify your wallet</h1>
+    <p class="sub">Prove your wallet holds <b id="min">10</b>+ SOL to unlock Restless Spirits Society.</p>
+
+    <button id="connect" class="primary">Connect Wallet</button>
+    <button id="sign" class="primary" style="display:none;">Sign &amp; Verify</button>
+    <div class="addr" id="addr"></div>
+
+    <div id="status" class="status"></div>
+
+    <div class="safety">
+      🔒 <b>This is 100% read-only.</b> You only sign a text message to prove ownership.
+      You will <b>never</b> approve a transaction and <b>never</b> enter your seed phrase.
+      No one can move your funds through this page.
+    </div>
+  </div>
+
+<script>
+// ── tiny base58 encoder (no external deps) ───────────────────────────────
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function bs58encode(bytes) {
+  let digits = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) { carry += digits[j] << 8; digits[j] = carry % 58; carry = (carry / 58) | 0; }
+    while (carry) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let str = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) str += '1';
+  for (let i = digits.length - 1; i >= 0; i--) str += B58[digits[i]];
+  return str;
+}
+
+const token = new URLSearchParams(location.search).get('token');
+const $ = (id) => document.getElementById(id);
+function show(kind, msg) { const s = $('status'); s.className = 'status show ' + kind; s.textContent = msg; }
+function provider() { return window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : window.solana); }
+
+let pubkey = null, message = null;
+
+async function init() {
+  if (!token) return show('err', 'Missing verification link. Run /verify in Discord to get a fresh one.');
+  try {
+    const r = await fetch('/api/challenge?token=' + encodeURIComponent(token));
+    const d = await r.json();
+    if (!d.ok) return show('err', d.error);
+    message = d.message; $('min').textContent = d.minSol;
+  } catch { show('err', 'Could not reach the server. Try again in a moment.'); }
+}
+
+$('connect').onclick = async () => {
+  const p = provider();
+  if (!p) return show('err', 'No Solana wallet found. Install Phantom (or another Solana wallet) and reload.');
+  try {
+    const res = await p.connect();
+    pubkey = res.publicKey.toString();
+    $('addr').textContent = pubkey;
+    $('connect').style.display = 'none';
+    $('sign').style.display = 'block';
+    show('info', 'Wallet connected. Now sign the message to verify.');
+  } catch { show('err', 'Wallet connection was cancelled.'); }
+};
+
+$('sign').onclick = async () => {
+  const p = provider();
+  if (!p || !message) return;
+  $('sign').disabled = true;
+  try {
+    const encoded = new TextEncoder().encode(message);
+    const signed = await p.signMessage(encoded, 'utf8');
+    const signature = bs58encode(signed.signature);
+    show('info', 'Checking your balance…');
+    const r = await fetch('/api/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, publicKey: pubkey, signature }),
+    });
+    const d = await r.json();
+    if (d.ok) show('ok', `✅ Verified — ${d.sol.toFixed(2)} SOL. Head back to Discord, you now have the Trencher role!`);
+    else { show('err', d.error); $('sign').disabled = false; }
+  } catch (e) {
+    show('err', 'Signing was cancelled or failed. Try again.'); $('sign').disabled = false;
+  }
+};
+
+init();
+</script>
+</body>
+</html>

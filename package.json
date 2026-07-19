@@ -1,0 +1,21 @@
+{
+  "name": "rss-verify-bot",
+  "version": "1.0.0",
+  "description": "Restless Spirits Society - Discord bot that gates a role behind holding 10+ native SOL, verified by a read-only wallet signature.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "bs58": "^6.0.0",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "tweetnacl": "^1.0.3"
+  }
+}
