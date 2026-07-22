@@ -45,6 +45,7 @@ const {
 const MIN_SOL = Number(process.env.MIN_SOL ?? 10);
 const MAX_MEMBERS = Number(process.env.MAX_MEMBERS ?? 100); // 0 = unlimited ("first N free")
 const TICKET_CATEGORY = 'verification-tickets';
+const SUPPORT_CATEGORY = 'support-tickets';
 
 for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ROLE_ID })) {
   if (!v) { console.error(`Missing required env var: ${k}`); process.exit(1); }
@@ -184,6 +185,8 @@ const commands = [
   new SlashCommandBuilder().setName('verify').setDescription('Verify your Solana wallet holds 10+ SOL and unlock the server.'),
   new SlashCommandBuilder().setName('setup').setDescription('(Admin) Post the Verify Wallet button in this channel.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder().setName('supportpanel').setDescription('(Admin) Post the "Open a Ticket" support button in this channel.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 ].map(c => c.toJSON());
 
 function panelRow() {
@@ -283,7 +286,58 @@ async function closeTicket(interaction) {
     return interaction.reply({ content: 'Only staff can close tickets.', flags: MessageFlags.Ephemeral });
   }
   await interaction.reply({ content: '🔒 Closing this ticket in 5 seconds…' });
-  setTimeout(() => interaction.channel?.delete('Verification ticket closed').catch(() => {}), 5000);
+  setTimeout(() => interaction.channel?.delete('Ticket closed').catch(() => {}), 5000);
+}
+
+// Open a general-purpose SUPPORT ticket (any reason). Private channel, staff can close.
+async function openSupportTicket(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const guild = interaction.guild;
+  const user = interaction.user;
+
+  const existing = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildText && c.topic === `support:${user.id}`,
+  );
+  if (existing) {
+    return interaction.editReply({ content: `You already have an open ticket: <#${existing.id}>.` });
+  }
+
+  let category = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === SUPPORT_CATEGORY,
+  );
+  if (!category) {
+    category = await guild.channels.create({ name: SUPPORT_CATEGORY, type: ChannelType.GuildCategory });
+  }
+
+  const overwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
+    { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
+  ];
+  if (TICKET_STAFF_ROLE_ID) {
+    overwrites.push({ id: TICKET_STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+  }
+
+  const channel = await guild.channels.create({
+    name: (`ticket-${user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '') || `ticket-${user.id}`).slice(0, 90),
+    type: ChannelType.GuildText,
+    parent: category.id,
+    topic: `support:${user.id}`,
+    permissionOverwrites: overwrites,
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎫 Support ticket')
+    .setDescription(
+      `Hey <@${user.id}> — describe your question or issue here and a mod will help you out.\n\n` +
+      `⚠️ Mods will never DM you first or ask for your seed phrase or a wallet transaction.`,
+    )
+    .setColor(0x5865f2);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
+  );
+  await channel.send({ content: `<@${user.id}>`, embeds: [embed], components: [row] });
+  return interaction.editReply({ content: `✅ Ticket opened: <#${channel.id}> — a mod will be with you shortly.` });
 }
 async function sendLink(interaction) {
   const url = `${BASE_URL}/?token=${makeToken(interaction.user.id)}`;
@@ -312,8 +366,20 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand() && interaction.commandName === 'verify') return sendLink(interaction);
     if (interaction.isButton() && interaction.customId === 'verify_wallet') return sendLink(interaction);
     if (interaction.isButton() && interaction.customId === 'open_ticket') return openTicket(interaction);
+    if (interaction.isButton() && interaction.customId === 'open_support') return openSupportTicket(interaction);
     if (interaction.isButton() && interaction.customId === 'approve_ticket') return approveTicket(interaction);
     if (interaction.isButton() && interaction.customId === 'close_ticket') return closeTicket(interaction);
+    if (interaction.isChatInputCommand() && interaction.commandName === 'supportpanel') {
+      const embed = new EmbedBuilder()
+        .setTitle('🎫 Need help?')
+        .setDescription('Open a private ticket for any reason — a question, a problem, a report, or a partnership. Tap the button below and a mod will help you.')
+        .setColor(0x5865f2);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('open_support').setLabel('Open a Ticket').setStyle(ButtonStyle.Primary).setEmoji('🎫'),
+      );
+      await interaction.channel.send({ embeds: [embed], components: [row] });
+      return interaction.reply({ content: 'Posted the support panel.', flags: MessageFlags.Ephemeral });
+    }
     if (interaction.isChatInputCommand() && interaction.commandName === 'setup') {
       const embed = new EmbedBuilder()
         .setTitle('✅ Get verified to enter')
