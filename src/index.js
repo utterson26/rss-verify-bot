@@ -190,12 +190,16 @@ function verifyRow() {
 }
 async function sendLink(interaction) {
   const url = `${BASE_URL}/?token=${makeToken(interaction.user.id)}`;
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setLabel('Open Verification Page').setStyle(ButtonStyle.Link).setURL(url).setEmoji('🔗'),
+  );
   await interaction.reply({
     flags: MessageFlags.Ephemeral,
     content:
-      `**Verify your wallet** (link expires in 10 minutes, only you can see this):\n${url}\n\n` +
+      `Tap the button below to verify your wallet. **This link is private to you and expires in 10 minutes.**\n\n` +
       `You'll connect your wallet and **sign a message** — this is read-only and never moves funds. ` +
       `We never ask for your seed phrase and never request a transaction.`,
+    components: [row],
   });
 }
 
