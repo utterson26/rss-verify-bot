@@ -26,7 +26,7 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import {
   Client, GatewayIntentBits, REST, Routes,
   SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  EmbedBuilder, PermissionFlagsBits, MessageFlags,
+  EmbedBuilder, PermissionFlagsBits, MessageFlags, ChannelType,
 } from 'discord.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +35,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const {
   DISCORD_TOKEN, GUILD_ID, ROLE_ID, VERIFY_CHANNEL_ID,
   REQUIRE_ROLE_ID,                  // optional: member must already have this role (e.g. "Referral Verified")
+  TICKET_STAFF_ROLE_ID,             // optional: role (besides admins) that can see & approve tickets
+  REFERRAL_URL = 'https://trade.padre.gg/rk/rss',
   RPC_URL = 'https://api.mainnet-beta.solana.com',
   BASE_URL = 'http://localhost:3000',
   SESSION_SECRET = 'change-me',
@@ -42,6 +44,7 @@ const {
 } = process.env;
 const MIN_SOL = Number(process.env.MIN_SOL ?? 10);
 const MAX_MEMBERS = Number(process.env.MAX_MEMBERS ?? 100); // 0 = unlimited ("first N free")
+const TICKET_CATEGORY = 'verification-tickets';
 
 for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ROLE_ID })) {
   if (!v) { console.error(`Missing required env var: ${k}`); process.exit(1); }
@@ -157,7 +160,7 @@ app.post('/api/verify', async (req, res) => {
     // 4) Grant the role (referral prerequisite + "first N free" cap) and record the wallet.
     const result = await grantRole(payload.id);
     if (result.needsPrereq) {
-      return res.status(200).json({ ok: false, error: 'You still need the Referral Verified role. Post your Padre signup screenshot in #verify, wait for a mod to approve you, then run /verify again.' });
+      return res.status(200).json({ ok: false, error: 'You still need the Referral Verified role. Open a verification ticket in the verify channel, post your Padre signup screenshot, and a mod will approve you — then verify your wallet again.' });
     }
     if (result.full) {
       return res.status(200).json({ ok: false, error: `The first ${MAX_MEMBERS} spots are full — free entry has closed.` });
@@ -183,10 +186,104 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 ].map(c => c.toJSON());
 
-function verifyRow() {
+function panelRow() {
   return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('open_ticket').setLabel('Submit Referral Proof').setStyle(ButtonStyle.Primary).setEmoji('🎫'),
     new ButtonBuilder().setCustomId('verify_wallet').setLabel('Verify Wallet').setStyle(ButtonStyle.Success).setEmoji('✅'),
   );
+}
+
+// A member is "staff" if they can Manage the Server (admins/mods) or hold the optional staff role.
+function isStaff(member) {
+  if (!member) return false;
+  if (member.permissions?.has(PermissionFlagsBits.ManageGuild)) return true;
+  if (TICKET_STAFF_ROLE_ID && member.roles.cache.has(TICKET_STAFF_ROLE_ID)) return true;
+  return false;
+}
+
+// Open a PRIVATE ticket channel where the member posts their referral screenshot.
+async function openTicket(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const guild = interaction.guild;
+  const user = interaction.user;
+
+  const existing = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildText && c.topic === `ticket:${user.id}`,
+  );
+  if (existing) {
+    return interaction.editReply({ content: `You already have an open ticket: <#${existing.id}> — post your screenshot there.` });
+  }
+
+  let category = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === TICKET_CATEGORY,
+  );
+  if (!category) {
+    category = await guild.channels.create({ name: TICKET_CATEGORY, type: ChannelType.GuildCategory });
+  }
+
+  const overwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
+    { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
+  ];
+  if (TICKET_STAFF_ROLE_ID) {
+    overwrites.push({ id: TICKET_STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+  }
+
+  const channel = await guild.channels.create({
+    name: (`verify-${user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '') || `verify-${user.id}`).slice(0, 90),
+    type: ChannelType.GuildText,
+    parent: category.id,
+    topic: `ticket:${user.id}`,
+    permissionOverwrites: overwrites,
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎫 Referral verification')
+    .setDescription(
+      `Welcome <@${user.id}>!\n\n` +
+      `Post a **screenshot of your Padre signup** (made with our referral link) right here. ` +
+      `A mod will review it and grant you **Referral Verified** — then you can verify your wallet.\n\n` +
+      `Referral link: ${REFERRAL_URL}\n\n` +
+      `⚠️ You only ever **sign a message** later — never approve a transaction, never share your seed phrase.`,
+    )
+    .setColor(0x2dd478);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('approve_ticket').setLabel('Approve (Referral Verified)').setStyle(ButtonStyle.Success).setEmoji('✅'),
+    new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
+  );
+  await channel.send({ content: `<@${user.id}>`, embeds: [embed], components: [row] });
+  return interaction.editReply({ content: `✅ Your private ticket is open: <#${channel.id}> — post your screenshot there.` });
+}
+
+// Staff clicks Approve → grants Referral Verified to the ticket's owner.
+async function approveTicket(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({ content: 'Only staff can approve tickets.', flags: MessageFlags.Ephemeral });
+  }
+  const topic = interaction.channel?.topic || '';
+  const openerId = topic.startsWith('ticket:') ? topic.slice(7) : null;
+  if (!openerId) {
+    return interaction.reply({ content: 'This does not look like a verification ticket.', flags: MessageFlags.Ephemeral });
+  }
+  if (!REQUIRE_ROLE_ID) {
+    return interaction.reply({ content: 'No Referral Verified role is configured (REQUIRE_ROLE_ID).', flags: MessageFlags.Ephemeral });
+  }
+  const member = await interaction.guild.members.fetch(openerId).catch(() => null);
+  if (!member) {
+    return interaction.reply({ content: 'That member seems to have left the server.', flags: MessageFlags.Ephemeral });
+  }
+  await member.roles.add(REQUIRE_ROLE_ID, 'Referral proof approved via ticket');
+  return interaction.reply({ content: `✅ Approved — <@${openerId}> now has **Referral Verified** and can hit **Verify Wallet** to finish. You can close this ticket.` });
+}
+
+// Staff clicks Close → deletes the ticket channel.
+async function closeTicket(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({ content: 'Only staff can close tickets.', flags: MessageFlags.Ephemeral });
+  }
+  await interaction.reply({ content: '🔒 Closing this ticket in 5 seconds…' });
+  setTimeout(() => interaction.channel?.delete('Verification ticket closed').catch(() => {}), 5000);
 }
 async function sendLink(interaction) {
   const url = `${BASE_URL}/?token=${makeToken(interaction.user.id)}`;
@@ -214,13 +311,20 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand() && interaction.commandName === 'verify') return sendLink(interaction);
     if (interaction.isButton() && interaction.customId === 'verify_wallet') return sendLink(interaction);
+    if (interaction.isButton() && interaction.customId === 'open_ticket') return openTicket(interaction);
+    if (interaction.isButton() && interaction.customId === 'approve_ticket') return approveTicket(interaction);
+    if (interaction.isButton() && interaction.customId === 'close_ticket') return closeTicket(interaction);
     if (interaction.isChatInputCommand() && interaction.commandName === 'setup') {
       const embed = new EmbedBuilder()
-        .setTitle('✅ Verify to enter')
-        .setDescription(`Click below, connect your Solana wallet, and **sign a message** (read-only — never a transaction) to prove you hold **${MIN_SOL}+ SOL**. You'll get the Trencher role automatically.`)
+        .setTitle('✅ Get verified to enter')
+        .setDescription(
+          `**Step 1 — Referral proof.** Tap **🎫 Submit Referral Proof** to open a private ticket, then drop a screenshot of your Padre signup. A mod approves you for **Referral Verified**.\n\n` +
+          `**Step 2 — Wallet check.** Once you have Referral Verified, tap **✅ Verify Wallet**, connect your wallet, and **sign a message** (read-only — never a transaction) to prove you hold **${MIN_SOL}+ SOL**. You'll get **Trencher** automatically.\n\n` +
+          `⚠️ You only ever sign a message. Never approve a transaction, never share your seed phrase. Mods never DM first.`,
+        )
         .setColor(0x2dd478);
-      await interaction.channel.send({ embeds: [embed], components: [verifyRow()] });
-      await interaction.reply({ content: 'Posted the Verify button.', flags: MessageFlags.Ephemeral });
+      await interaction.channel.send({ embeds: [embed], components: [panelRow()] });
+      await interaction.reply({ content: 'Posted the verification panel.', flags: MessageFlags.Ephemeral });
     }
   } catch (e) {
     console.error('interaction error:', e);
