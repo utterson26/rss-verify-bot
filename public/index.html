@@ -42,6 +42,11 @@
     <button id="sign" class="primary" style="display:none;">Sign &amp; Verify</button>
     <div class="addr" id="addr"></div>
 
+    <p class="hint" id="hint" style="display:none; font-size:12px; color:var(--muted); text-align:center; margin-top:12px; line-height:1.5;">
+      📱 On your phone? Tap <b>Open in Phantom</b> — it reopens this page inside your wallet so you can connect.<br>
+      Using Solflare or another wallet? Open your wallet app, go to its built-in browser, and paste this page's link.
+    </p>
+
     <div id="status" class="status"></div>
 
     <div class="safety">
@@ -71,6 +76,14 @@ const token = new URLSearchParams(location.search).get('token');
 const $ = (id) => document.getElementById(id);
 function show(kind, msg) { const s = $('status'); s.className = 'status show ' + kind; s.textContent = msg; }
 function provider() { return window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : window.solana); }
+function isMobile() { return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent); }
+// Reopen THIS exact page (token included) inside Phantom's in-app browser,
+// where the wallet provider is injected and connect/sign work normally.
+function phantomDeeplink() {
+  const url = encodeURIComponent(location.href);
+  const ref = encodeURIComponent(location.origin);
+  return 'https://phantom.app/ul/browse/' + url + '?ref=' + ref;
+}
 
 let pubkey = null, message = null;
 
@@ -81,12 +94,25 @@ async function init() {
     const d = await r.json();
     if (!d.ok) return show('err', d.error);
     message = d.message; $('min').textContent = d.minSol;
-  } catch { show('err', 'Could not reach the server. Try again in a moment.'); }
+  } catch { return show('err', 'Could not reach the server. Try again in a moment.'); }
+  // Mobile browser with no injected wallet: switch to the "open in wallet app" flow.
+  if (!provider() && isMobile()) {
+    $('connect').textContent = 'Open in Phantom';
+    $('hint').style.display = 'block';
+  }
 }
 
 $('connect').onclick = async () => {
   const p = provider();
-  if (!p) return show('err', 'No Solana wallet found. Install Phantom (or another Solana wallet) and reload.');
+  if (!p) {
+    // No injected wallet. On mobile, bounce into Phantom's in-app browser.
+    if (isMobile()) {
+      show('info', 'Opening Phantom… if nothing happens, open your wallet app, go to its browser, and paste this page link.');
+      location.href = phantomDeeplink();
+      return;
+    }
+    return show('err', 'No Solana wallet found. Install Phantom (or another Solana wallet) and reload.');
+  }
   try {
     const res = await p.connect();
     pubkey = res.publicKey.toString();
