@@ -47,6 +47,13 @@ const MAX_MEMBERS = Number(process.env.MAX_MEMBERS ?? 100); // 0 = unlimited ("f
 const TICKET_CATEGORY = 'verification-tickets';
 const SUPPORT_CATEGORY = 'support-tickets';
 
+// ── Launch gate ─────────────────────────────────────────────────────────────
+// Verification is CLOSED until launch. Flip VERIFY_OPEN=true (env) on release
+// day to open the doors. Enforced on the Discord buttons AND server-side.
+const VERIFY_OPEN = String(process.env.VERIFY_OPEN ?? 'false').toLowerCase() === 'true';
+const VERIFY_CLOSED_MSG = process.env.VERIFY_CLOSED_MSG
+  || "🔒 **Verification isn't open yet.** Restless Spirits Society unlocks at launch — funded wallets (10+ SOL) claim the free spots first, then it goes paid. Watch the announcements and our X for the drop. 🕯️";
+
 for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ROLE_ID })) {
   if (!v) { console.error(`Missing required env var: ${k}`); process.exit(1); }
 }
@@ -122,6 +129,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // The page asks for the exact message to sign.
 app.get('/api/challenge', (req, res) => {
+  if (!VERIFY_OPEN) return res.status(200).json({ ok: false, error: "Verification opens at launch — it isn't live yet. Watch the RSS announcements for the drop. 🕯️" });
   const payload = readToken(req.query.token);
   if (!payload) return res.status(400).json({ ok: false, error: 'This verification link is invalid or expired. Run /verify again in Discord.' });
   res.json({ ok: true, message: challengeMessage(payload), minSol: MIN_SOL });
@@ -130,6 +138,7 @@ app.get('/api/challenge', (req, res) => {
 // Verify signature → check balance → grant role.
 app.post('/api/verify', async (req, res) => {
   try {
+    if (!VERIFY_OPEN) return res.status(200).json({ ok: false, error: "Verification isn't open yet — it unlocks at launch. Watch the RSS announcements." });
     const { token, publicKey, signature } = req.body || {};
     const payload = readToken(token);
     if (!payload) return res.status(400).json({ ok: false, error: 'Link invalid or expired. Run /verify again in Discord.' });
@@ -206,6 +215,7 @@ function isStaff(member) {
 
 // Open a PRIVATE ticket channel where the member posts their referral screenshot.
 async function openTicket(interaction) {
+  if (!VERIFY_OPEN) return interaction.reply({ content: VERIFY_CLOSED_MSG, flags: MessageFlags.Ephemeral });
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const guild = interaction.guild;
   const user = interaction.user;
@@ -340,6 +350,7 @@ async function openSupportTicket(interaction) {
   return interaction.editReply({ content: `✅ Ticket opened: <#${channel.id}> — a mod will be with you shortly.` });
 }
 async function sendLink(interaction) {
+  if (!VERIFY_OPEN) return interaction.reply({ content: VERIFY_CLOSED_MSG, flags: MessageFlags.Ephemeral });
   const url = `${BASE_URL}/?token=${makeToken(interaction.user.id)}`;
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setLabel('Open Verification Page').setStyle(ButtonStyle.Link).setURL(url).setEmoji('🔗'),
