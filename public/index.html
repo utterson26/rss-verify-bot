@@ -5,46 +5,92 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Restless Spirits Society — Verify</title>
 <style>
-  :root { --bg:#0b0d10; --card:#14181d; --line:#232a31; --green:#2dd478; --text:#e8edf2; --muted:#9aa7b2; --red:#ff6b6b; }
+  :root {
+    --bg:#06070a; --card:#0d1014; --line:#1d242b;
+    --cream:#efe6d4; --body:#dbe1e7; --muted:#7f8e9a;
+    --ember:#ffa848; --ok:#2dd478; --red:#ff6b6b;
+  }
   * { box-sizing: border-box; }
   body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-         background: radial-gradient(1200px 600px at 50% -10%, #12181d, var(--bg)); color:var(--text);
-         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-  .card { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line);
-          border-radius:18px; padding:32px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
-  .logo { width:72px; height:72px; border-radius:50%; border:3px solid var(--green); margin:0 auto 14px;
-          display:flex; align-items:center; justify-content:center; font-weight:800; letter-spacing:1px; font-size:20px; }
-  h1 { font-size:20px; text-align:center; margin:0 0 4px; }
-  p.sub { text-align:center; color:var(--muted); margin:0 0 22px; font-size:14px; }
-  button { width:100%; border:0; border-radius:12px; padding:14px 16px; font-size:15px; font-weight:700;
-           cursor:pointer; margin-top:12px; transition:.15s; }
-  .primary { background:var(--green); color:#04150c; }
-  .primary:hover { filter:brightness(1.08); }
-  .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  .status { margin-top:18px; padding:12px 14px; border-radius:10px; font-size:14px; text-align:center; display:none; }
+         background:
+           radial-gradient(900px 540px at 50% 108%, rgba(255,168,72,.16), rgba(255,140,50,.05) 40%, transparent 68%),
+           var(--bg);
+         color:var(--body); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { width:100%; max-width:480px; background:var(--card); border:1px solid var(--line);
+          border-radius:18px; padding:30px; box-shadow:0 24px 70px rgba(0,0,0,.6); }
+  .logo { width:66px; height:66px; border-radius:50%; border:2px solid rgba(255,168,72,.5); margin:0 auto 16px;
+          display:flex; align-items:center; justify-content:center; font-weight:800; letter-spacing:2px;
+          font-size:17px; color:var(--cream); box-shadow:0 0 44px rgba(255,170,60,.16); }
+  h1 { font-size:20px; text-align:center; margin:0 0 6px; color:var(--cream); letter-spacing:.5px; }
+  p.sub { text-align:center; color:var(--muted); margin:0 0 6px; font-size:14px; line-height:1.55; }
+  p.chains { text-align:center; color:var(--muted); margin:0 0 22px; font-size:12px; line-height:1.5; }
+  p.chains b { color:var(--body); font-weight:600; }
+
+  .slot { border:1px solid var(--line); border-radius:12px; padding:13px 14px; margin-top:10px;
+          display:flex; align-items:center; gap:12px; transition:.18s; }
+  .slot.linked { border-color:rgba(45,212,120,.4); background:rgba(45,212,120,.06); }
+  .slot .icon { width:30px; height:30px; border-radius:8px; flex:0 0 auto; display:flex; align-items:center;
+                justify-content:center; font-size:14px; background:rgba(255,255,255,.05); }
+  .slot .meta { flex:1; min-width:0; }
+  .slot .name { font-size:14px; font-weight:600; color:var(--body); }
+  .slot .note { font-size:11.5px; color:var(--muted); margin-top:2px; word-break:break-all; line-height:1.45; }
+  .slot button { width:auto; flex:0 0 auto; margin:0; padding:9px 14px; font-size:13px; border-radius:9px;
+                 background:rgba(255,255,255,.07); color:var(--body); border:1px solid var(--line); }
+  .slot button:hover:not(:disabled) { background:rgba(255,168,72,.14); border-color:rgba(255,168,72,.4); color:var(--cream); }
+  .slot .check { color:var(--ok); font-size:18px; flex:0 0 auto; }
+
+  button { border:0; border-radius:12px; padding:14px 16px; font-size:15px; font-weight:700;
+           cursor:pointer; transition:.15s; font-family:inherit; }
+  #verify { width:100%; margin-top:18px; background:var(--ember); color:#2b1602; }
+  #verify:hover:not(:disabled) { filter:brightness(1.08); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+
+  .status { margin-top:16px; padding:12px 14px; border-radius:10px; font-size:13.5px; text-align:center;
+            display:none; line-height:1.55; }
   .status.show { display:block; }
-  .ok { background:rgba(45,212,120,.12); border:1px solid rgba(45,212,120,.35); color:var(--green); }
-  .err { background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.35); color:var(--red); }
+  .ok { background:rgba(45,212,120,.1); border:1px solid rgba(45,212,120,.32); color:var(--ok); }
+  .err { background:rgba(255,107,107,.08); border:1px solid rgba(255,107,107,.3); color:var(--red); }
   .info { background:rgba(255,255,255,.04); border:1px solid var(--line); color:var(--muted); }
-  .safety { margin-top:22px; font-size:12px; color:var(--muted); line-height:1.5; border-top:1px solid var(--line); padding-top:16px; }
-  .safety b { color:var(--text); }
-  .addr { font-family: ui-monospace, monospace; font-size:12px; color:var(--muted); text-align:center; margin-top:8px; word-break:break-all; }
+
+  .hint { font-size:11.5px; color:var(--muted); text-align:center; margin-top:14px; line-height:1.6; display:none; }
+  .safety { margin-top:20px; font-size:11.5px; color:var(--muted); line-height:1.6;
+            border-top:1px solid var(--line); padding-top:15px; }
+  .safety b { color:var(--body); }
+  .handle { text-align:center; margin-top:18px; font-size:10.5px; letter-spacing:5px; color:var(--muted); }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="logo">RSS</div>
     <h1>Verify your wallet</h1>
-    <p class="sub">Prove your wallet holds <b id="min">10</b>+ SOL to unlock Restless Spirits Society.</p>
+    <p class="sub">Prove you hold <b id="min" style="color:var(--cream)">$1,000</b>+ in native coins to unlock Restless Spirits Society.</p>
+    <p class="chains">Any chain counts — <b>SOL</b> on Solana, <b>ETH</b> on Ethereum / Base / Arbitrum, <b>BNB</b> on BNB Chain.<br>Link one wallet or both; we add them together.</p>
 
-    <button id="connect" class="primary">Connect Wallet</button>
-    <button id="sign" class="primary" style="display:none;">Sign &amp; Verify</button>
-    <div class="addr" id="addr"></div>
+    <div class="slot" id="slot-sol">
+      <div class="icon">◎</div>
+      <div class="meta">
+        <div class="name">Solana wallet</div>
+        <div class="note" id="note-sol">Phantom, Solflare, Backpack</div>
+      </div>
+      <button id="link-sol">Link</button>
+      <span class="check" id="check-sol" style="display:none;">✓</span>
+    </div>
 
-    <p class="hint" id="hint" style="display:none; font-size:12px; color:var(--muted); text-align:center; margin-top:12px; line-height:1.5;">
-      📱 On your phone? Tap <b>Open in Phantom</b> — it reopens this page inside your wallet so you can connect.<br>
-      Using Solflare or another wallet? Open your wallet app, go to its built-in browser, and paste this page's link.
+    <div class="slot" id="slot-evm">
+      <div class="icon">⬢</div>
+      <div class="meta">
+        <div class="name">EVM wallet</div>
+        <div class="note" id="note-evm">MetaMask, Rabby, Phantom — covers ETH, Base, Arbitrum, BNB</div>
+      </div>
+      <button id="link-evm">Link</button>
+      <span class="check" id="check-evm" style="display:none;">✓</span>
+    </div>
+
+    <button id="verify" disabled>Verify &amp; unlock</button>
+
+    <p class="hint" id="hint">
+      📱 On your phone? Tap <b>Link</b> and we'll reopen this page inside your wallet app.<br>
+      If nothing happens, open your wallet's built-in browser and paste this page's link.
     </p>
 
     <div id="status" class="status"></div>
@@ -54,6 +100,8 @@
       You will <b>never</b> approve a transaction and <b>never</b> enter your seed phrase.
       No one can move your funds through this page.
     </div>
+
+    <div class="handle">@RSSHODL</div>
   </div>
 
 <script>
@@ -71,41 +119,62 @@ function bs58encode(bytes) {
   for (let i = digits.length - 1; i >= 0; i--) str += B58[digits[i]];
   return str;
 }
+function toHex(str) {
+  return '0x' + [...new TextEncoder().encode(str)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function short(a) { return a.length > 16 ? a.slice(0, 6) + '…' + a.slice(-6) : a; }
 
 const token = new URLSearchParams(location.search).get('token');
 const $ = (id) => document.getElementById(id);
 function show(kind, msg) { const s = $('status'); s.className = 'status show ' + kind; s.textContent = msg; }
-function provider() { return window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : window.solana); }
+function clearStatus() { $('status').className = 'status'; }
+
+function solProvider() { return window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : window.solana); }
+function evmProvider() { return window.ethereum ?? window.phantom?.ethereum; }
 function isMobile() { return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent); }
-// Reopen THIS exact page (token included) inside Phantom's in-app browser,
-// where the wallet provider is injected and connect/sign work normally.
+
+// Reopen THIS exact page (token included) inside the wallet's in-app browser,
+// where the provider is injected and connect/sign work normally.
 function phantomDeeplink() {
-  const url = encodeURIComponent(location.href);
-  const ref = encodeURIComponent(location.origin);
-  return 'https://phantom.app/ul/browse/' + url + '?ref=' + ref;
+  return 'https://phantom.app/ul/browse/' + encodeURIComponent(location.href) + '?ref=' + encodeURIComponent(location.origin);
+}
+function metamaskDeeplink() {
+  return 'https://metamask.app.link/dapp/' + location.host + location.pathname + location.search;
 }
 
-let pubkey = null, message = null;
+let message = null;
+const linked = { solana: null, evm: null };
+
+function refresh() {
+  $('verify').disabled = !(linked.solana || linked.evm);
+}
+
+function markLinked(kind, address) {
+  const slot = $('slot-' + kind), note = $('note-' + kind);
+  slot.classList.add('linked');
+  note.textContent = short(address);
+  $('link-' + kind).style.display = 'none';
+  $('check-' + kind).style.display = 'block';
+  refresh();
+}
 
 async function init() {
   if (!token) return show('err', 'Missing verification link. Run /verify in Discord to get a fresh one.');
   try {
     const r = await fetch('/api/challenge?token=' + encodeURIComponent(token));
     const d = await r.json();
-    if (!d.ok) return show('err', d.error);
-    message = d.message; $('min').textContent = d.minSol;
+    if (!d.ok) { $('link-sol').disabled = $('link-evm').disabled = true; return show('err', d.error); }
+    message = d.message;
+    $('min').textContent = '$' + d.minUsd.toLocaleString('en-US');
   } catch { return show('err', 'Could not reach the server. Try again in a moment.'); }
-  // Mobile browser with no injected wallet: switch to the "open in wallet app" flow.
-  if (!provider() && isMobile()) {
-    $('connect').textContent = 'Open in Phantom';
-    $('hint').style.display = 'block';
-  }
+
+  if (isMobile() && (!solProvider() || !evmProvider())) $('hint').style.display = 'block';
 }
 
-$('connect').onclick = async () => {
-  const p = provider();
+// ── Solana ──────────────────────────────────────────────────────────────
+$('link-sol').onclick = async () => {
+  const p = solProvider();
   if (!p) {
-    // No injected wallet. On mobile, bounce into Phantom's in-app browser.
     if (isMobile()) {
       show('info', 'Opening Phantom… if nothing happens, open your wallet app, go to its browser, and paste this page link.');
       location.href = phantomDeeplink();
@@ -113,34 +182,64 @@ $('connect').onclick = async () => {
     }
     return show('err', 'No Solana wallet found. Install Phantom (or another Solana wallet) and reload.');
   }
+  $('link-sol').disabled = true;
   try {
     const res = await p.connect();
-    pubkey = res.publicKey.toString();
-    $('addr').textContent = pubkey;
-    $('connect').style.display = 'none';
-    $('sign').style.display = 'block';
-    show('info', 'Wallet connected. Now sign the message to verify.');
-  } catch { show('err', 'Wallet connection was cancelled.'); }
+    const publicKey = res.publicKey.toString();
+    const signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
+    linked.solana = { publicKey, signature: bs58encode(signed.signature) };
+    markLinked('sol', publicKey);
+    clearStatus();
+  } catch {
+    show('err', 'Solana wallet connection or signature was cancelled.');
+    $('link-sol').disabled = false;
+  }
 };
 
-$('sign').onclick = async () => {
-  const p = provider();
-  if (!p || !message) return;
-  $('sign').disabled = true;
+// ── EVM ─────────────────────────────────────────────────────────────────
+$('link-evm').onclick = async () => {
+  const p = evmProvider();
+  if (!p) {
+    if (isMobile()) {
+      show('info', 'Opening MetaMask… if nothing happens, open your wallet app, go to its browser, and paste this page link.');
+      location.href = metamaskDeeplink();
+      return;
+    }
+    return show('err', 'No EVM wallet found. Install MetaMask, Rabby or Phantom and reload.');
+  }
+  $('link-evm').disabled = true;
   try {
-    const encoded = new TextEncoder().encode(message);
-    const signed = await p.signMessage(encoded, 'utf8');
-    const signature = bs58encode(signed.signature);
-    show('info', 'Checking your balance…');
+    const accounts = await p.request({ method: 'eth_requestAccounts' });
+    const address = accounts[0];
+    const signature = await p.request({ method: 'personal_sign', params: [toHex(message), address] });
+    linked.evm = { address, signature };
+    markLinked('evm', address);
+    clearStatus();
+  } catch {
+    show('err', 'EVM wallet connection or signature was cancelled.');
+    $('link-evm').disabled = false;
+  }
+};
+
+// ── Submit ──────────────────────────────────────────────────────────────
+$('verify').onclick = async () => {
+  $('verify').disabled = true;
+  show('info', 'Checking your balances across chains…');
+  try {
     const r = await fetch('/api/verify', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, publicKey: pubkey, signature }),
+      body: JSON.stringify({ token, solana: linked.solana, evm: linked.evm }),
     });
     const d = await r.json();
-    if (d.ok) show('ok', `✅ Verified — ${d.sol.toFixed(2)} SOL. Head back to Discord, you now have the Trencher role!`);
-    else { show('err', d.error); $('sign').disabled = false; }
-  } catch (e) {
-    show('err', 'Signing was cancelled or failed. Try again.'); $('sign').disabled = false;
+    if (d.ok) {
+      show('ok', `✅ Verified — $${d.usd.toFixed(2)} across your wallets. Head back to Discord, you now have the Trencher role!`);
+    } else {
+      show('err', d.error);
+      $('verify').disabled = false;
+    }
+  } catch {
+    show('err', 'Could not reach the server. Try again in a moment.');
+    $('verify').disabled = false;
   }
 };
 
