@@ -1,7 +1,11 @@
 # Restless Spirits Society — deployment walkthrough
 
 Everything below is done by you (it needs your bot token, your host, and your account).
-Values already known: **GUILD_ID = 1528476753939398850**, referral **https://trade.padre.gg/rk/rss**.
+Values already known: **GUILD_ID = 1528476753939398850**, Padre referral **https://trade.padre.gg/rk/rss**, FOMO referral **https://fomo.family/r/RSScabal**.
+
+> **Entry rule (current):** $1,000+ in native coins across any supported chain — SOL on Solana,
+> ETH on Ethereum/Base/Arbitrum, BNB on BNB Chain. Members can link a Solana wallet, an EVM wallet,
+> or both, and the balances are added together.
 
 ---
 
@@ -44,8 +48,11 @@ GUILD_ID=1528476753939398850
 ROLE_ID=（Trencher role ID）
 REQUIRE_ROLE_ID=（Referral Verified role ID）
 VERIFY_CHANNEL_ID=（#verify ID, optional）
-MIN_SOL=10
+MIN_USD=1000
 MAX_MEMBERS=100
+VERIFY_OPEN=false
+REFERRAL_URL=https://trade.padre.gg/rk/rss
+FOMO_URL=https://fomo.family/r/RSScabal
 RPC_URL=https://api.mainnet-beta.solana.com
 BASE_URL=（your public URL from Phase 6 — set this AFTER you deploy）
 PORT=3000
@@ -80,16 +87,42 @@ you can test the whole flow yourself before paying for a host (wallet signing wo
 1. When it's running you'll see `Bot online as …` in the logs.
 2. In Discord, go to **#verify** and run **`/setup`** once → it posts the green **Verify Wallet** button.
 3. Test it yourself: give your own account the **Referral Verified** role, click **Verify Wallet**,
-   sign the message with a wallet holding 10+ SOL → you should receive **Trencher** and see the hidden channels.
+   sign the message with a wallet holding $1,000+ → you should receive **Trencher** and see the hidden channels.
+4. Before promoting the server, run `npm run check` (or open `https://your-url/api/health`) to confirm
+   every chain RPC and the price feed are reachable from your host. If prices are down, **every**
+   verification is refused.
 
 ## Phase 8 — Day-to-day (how it runs)
 - A newcomer signs up via your referral link and posts a screenshot in **#verify**.
+  Members on a **PC / terminal** use the **Padre** link; members on a **phone** use the **FOMO** link.
+  The ticket shows both, so they pick the one that matches them.
 - A **mod** checks it and gives them the **Referral Verified** role (right-click the member → Roles).
-- The member clicks **Verify Wallet** / runs `/verify` → the bot confirms 10+ SOL → grants **Trencher**.
-- After 100 Trenchers, the bot tells newcomers free entry has closed (change `MAX_MEMBERS` to reopen).
+- The member clicks **Verify Wallet** / runs `/verify`, links a Solana and/or EVM wallet, signs, and the
+  bot confirms **$1,000+ in native coins** across chains → grants **Trencher**.
+- After `MAX_MEMBERS` Trenchers, the bot tells newcomers free entry has closed (change it to reopen).
 
 ## Tips
 - Use a real RPC (free Helius/QuickNode key) in `RPC_URL` before you promote the server — the public RPC is rate-limited.
-- The balance is checked at verify time; if you want the role auto-removed when a wallet drops below 10 SOL,
+  The EVM chains default to publicnode.com; override with `ETH_RPC_URL`, `BSC_RPC_URL`, `BASE_RPC_URL`, `ARB_RPC_URL`.
+- Only **native** coins count (SOL/ETH/BNB) — memecoin bags do not. That's deliberate: anyone can mint a
+  worthless token and fake a big balance, so counting them would make the $1,000 gate meaningless.
+- The balance is checked at verify time; if you want the role auto-removed when a wallet drops below $1,000,
   that's a periodic re-check we can add later.
 - Keep `DISCORD_TOKEN` and `SESSION_SECRET` secret. Never commit `.env` to GitHub.
+
+---
+
+## Phase 9 — Updating a bot that's already live on Render
+
+The bot is already deployed, so a change is just: push the new code, adjust the variables, redeploy.
+
+1. **Push the code.** Upload the new files to the GitHub repo (`utterson26/rss-verify-bot`).
+   Render redeploys automatically when the repo changes.
+2. **Environment → add/change these variables:**
+   - `MIN_USD` = `1000`  *(new — replaces `MIN_SOL`, which is now ignored)*
+   - `MAX_MEMBERS` = `50` if you want the 50-seat story enforced (it is currently `100`)
+   - `VERIFY_OPEN` = `true` on launch day
+   - You can delete `MIN_SOL`.
+3. **Manual Deploy → Deploy latest commit.**
+4. Open `https://your-render-url/api/health` — it should return live SOL/ETH/BNB prices.
+   If it returns an error, the host can't reach the price feed and no one can verify.
