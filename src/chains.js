@@ -26,10 +26,9 @@ export const EVM_CHAINS = [
     rpc: process.env.ARB_RPC_URL  || 'https://arbitrum-one-rpc.publicnode.com' },
 ];
 
-// CoinGecko ids we need prices for.
+// Internal price ids (CoinGecko naming, kept for compatibility).
 const PRICE_IDS = ['solana', 'ethereum', 'binancecoin'];
-// Binance ticker symbols used as the fallback feed.
-const BINANCE_MAP = { solana: 'SOLUSDT', ethereum: 'ETHUSDT', binancecoin: 'BNBUSDT' };
+const SYMBOL = { solana: 'SOL', ethereum: 'ETH', binancecoin: 'BNB' };
 
 function fetchJson(url, init = {}) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })
@@ -39,56 +38,106 @@ function fetchJson(url, init = {}) {
     });
 }
 
-// ── Prices (cached; CoinGecko primary, Binance fallback) ────────────────────
-const PRICE_TTL_MS = 60_000;
-let priceCache = { at: 0, prices: null };
+// ── Prices ──────────────────────────────────────────────────────────────────
+// Several independent sources, tried in order; each may return a PARTIAL map
+// and the results are merged until every coin has a price. This matters in
+// practice: from a US datacenter CoinGecko rate-limits (429) and Binance
+// geo-blocks (451), so no single source is safe to depend on.
+//
+// Every source returns { solana?: usd, ethereum?: usd, binancecoin?: usd }.
+
+const positive = (n) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : undefined);
+
+// Coinbase: one call returns units-per-USD for hundreds of assets; invert it.
+// US-based, no key, generous limits — the primary source.
+async function fromCoinbase() {
+  const data = await fetchJson('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+  const rates = data?.data?.rates ?? {};
+  const out = {};
+  for (const id of PRICE_IDS) {
+    const perUsd = Number(rates[SYMBOL[id]]);
+    if (perUsd > 0) out[id] = positive(1 / perUsd);
+  }
+  return out;
+}
+
+// Binance.US: separate entity from Binance global, reachable from US hosts.
+async function fromBinanceUS() {
+  const symbols = encodeURIComponent(JSON.stringify(PRICE_IDS.map((id) => `${SYMBOL[id]}USD`)));
+  const rows = await fetchJson(`https://api.binance.us/api/v3/ticker/price?symbols=${symbols}`);
+  const bySymbol = Object.fromEntries((rows ?? []).map((r) => [r.symbol, Number(r.price)]));
+  const out = {};
+  for (const id of PRICE_IDS) out[id] = positive(bySymbol[`${SYMBOL[id]}USD`]);
+  return out;
+}
 
 async function fromCoinGecko() {
   const key = process.env.COINGECKO_API_KEY;
   const base = key
     ? 'https://pro-api.coingecko.com/api/v3/simple/price'
     : 'https://api.coingecko.com/api/v3/simple/price';
-  const url = `${base}?ids=${PRICE_IDS.join(',')}&vs_currencies=usd`;
   const headers = key ? { 'x-cg-pro-api-key': key } : {};
-  const data = await fetchJson(url, { headers });
+  const data = await fetchJson(`${base}?ids=${PRICE_IDS.join(',')}&vs_currencies=usd`, { headers });
   const out = {};
-  for (const id of PRICE_IDS) {
-    const p = data?.[id]?.usd;
-    if (typeof p !== 'number' || !(p > 0)) throw new Error(`CoinGecko returned no price for ${id}`);
-    out[id] = p;
+  for (const id of PRICE_IDS) out[id] = positive(data?.[id]?.usd);
+  return out;
+}
+
+// Kraken lists SOL and ETH but not BNB — a partial source, which the merge handles.
+async function fromKraken() {
+  const data = await fetchJson('https://api.kraken.com/0/public/Ticker?pair=SOLUSD,ETHUSD');
+  if (data?.error?.length) throw new Error(data.error.join(', '));
+  const out = {};
+  for (const [pair, t] of Object.entries(data?.result ?? {})) {
+    const last = Number(t?.c?.[0]);
+    if (/SOL/.test(pair)) out.solana = positive(last);
+    else if (/ETH/.test(pair)) out.ethereum = positive(last);
   }
   return out;
 }
 
+// Binance global — blocked from US IPs, useful if the bot is ever hosted elsewhere.
 async function fromBinance() {
-  const symbols = JSON.stringify(PRICE_IDS.map((id) => BINANCE_MAP[id]));
-  const url = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(symbols)}`;
-  const rows = await fetchJson(url);
-  const bySymbol = Object.fromEntries(rows.map((r) => [r.symbol, Number(r.price)]));
+  const symbols = encodeURIComponent(JSON.stringify(PRICE_IDS.map((id) => `${SYMBOL[id]}USDT`)));
+  const rows = await fetchJson(`https://api.binance.com/api/v3/ticker/price?symbols=${symbols}`);
+  const bySymbol = Object.fromEntries((rows ?? []).map((r) => [r.symbol, Number(r.price)]));
   const out = {};
-  for (const id of PRICE_IDS) {
-    const p = bySymbol[BINANCE_MAP[id]];
-    if (!(p > 0)) throw new Error(`Binance returned no price for ${id}`);
-    out[id] = p;
-  }
+  for (const id of PRICE_IDS) out[id] = positive(bySymbol[`${SYMBOL[id]}USDT`]);
   return out;
 }
 
-/** USD prices for SOL / ETH / BNB. Throws if no feed is reachable. */
+export const PRICE_SOURCES = [
+  ['coinbase', fromCoinbase],
+  ['binance.us', fromBinanceUS],
+  ['coingecko', fromCoinGecko],
+  ['kraken', fromKraken],
+  ['binance', fromBinance],
+];
+
+const PRICE_TTL_MS = 60_000;
+const STALE_OK_MS = 30 * 60_000;
+let priceCache = { at: 0, prices: null };
+
+/** USD prices for SOL / ETH / BNB. Throws if the coins can't all be priced. */
 export async function getPrices() {
   if (priceCache.prices && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache.prices;
+  const prices = {};
   const errors = [];
-  for (const [name, fn] of [['coingecko', fromCoinGecko], ['binance', fromBinance]]) {
+  for (const [name, fn] of PRICE_SOURCES) {
     try {
-      const prices = await fn();
+      const got = await fn();
+      for (const id of PRICE_IDS) if (prices[id] === undefined && got[id] !== undefined) prices[id] = got[id];
+    } catch (e) { errors.push(`${name}: ${e.message}`); }
+    if (PRICE_IDS.every((id) => prices[id] !== undefined)) {
       priceCache = { at: Date.now(), prices };
       return prices;
-    } catch (e) { errors.push(`${name}: ${e.message}`); }
+    }
   }
-  // Serve a stale cache (up to 15 min) before giving up — better than locking
-  // out a legitimate holder because CoinGecko rate-limited us for a minute.
-  if (priceCache.prices && Date.now() - priceCache.at < 15 * 60_000) return priceCache.prices;
-  throw new Error(`No price feed available (${errors.join('; ')})`);
+  // Serve a stale cache (up to 30 min) before giving up — better than locking
+  // out a legitimate holder because the feeds hiccuped for a minute.
+  if (priceCache.prices && Date.now() - priceCache.at < STALE_OK_MS) return priceCache.prices;
+  const missing = PRICE_IDS.filter((id) => prices[id] === undefined).map((id) => SYMBOL[id]);
+  throw new Error(`No price for ${missing.join(', ')} (${errors.join('; ') || 'sources returned nothing'})`);
 }
 
 // ── EVM ─────────────────────────────────────────────────────────────────────
