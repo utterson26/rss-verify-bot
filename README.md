@@ -56,7 +56,7 @@ ETH means what it says.
 | `BASE_URL` | localhost | Public HTTPS URL of this service. |
 | `RPC_URL` | public Solana RPC | Solana RPC. Use a Helius/QuickNode key for a launch. |
 | `ETH_RPC_URL` `BSC_RPC_URL` `BASE_RPC_URL` `ARB_RPC_URL` | publicnode.com | Per-chain EVM RPCs. |
-| `COINGECKO_API_KEY` | — | Optional CoinGecko Pro key; without it the free endpoint is used. |
+| `COINGECKO_API_KEY` | — | Optional. Prices come from Coinbase → Binance.US → CoinGecko → Kraken → Binance, merged; a key only upgrades the CoinGecko step. |
 | `DRY_RUN` | `false` | Serve only the verify page, no Discord — for local styling. |
 
 ## What you need
