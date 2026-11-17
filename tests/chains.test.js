@@ -105,7 +105,60 @@ test('holdings are described biggest-first', () => {
   assert.equal(desc, '0.2 ETH on Ethereum ($800.00), 1.000 SOL on Solana ($200.00)');
 });
 
-test('the price feed fails closed when no source is reachable', async () => {
+// ── Price sources (shapes copied from real responses) ───────────────────────
+const COINBASE = { data: { currency: 'USD', rates: { SOL: '0.0136', ETH: '0.000549', BNB: '0.001686' } } };
+const BINANCE_US = [{ symbol: 'ETHUSD', price: '1822.63' }, { symbol: 'BNBUSD', price: '593.00' }, { symbol: 'SOLUSD', price: '73.64' }];
+const KRAKEN = { error: [], result: { XETHZUSD: { c: ['1821.82', '1'] }, SOLUSD: { c: ['73.61', '1'] } } };
+
+/** Stub fetch by host: value is a JSON body, an HTTP status number, or 'fail'. */
+function stubPrices(byHost) {
+  globalThis.fetch = async (url) => {
+    const v = byHost[new URL(url).host];
+    if (v === undefined || v === 'fail') throw new Error('connection refused');
+    if (typeof v === 'number') return { ok: false, status: v, json: async () => ({}) };
+    return { ok: true, json: async () => v };
+  };
+}
+// getPrices caches for 60s; bust it between tests by re-importing a fresh module.
+async function freshGetPrices() {
+  const mod = await import(`../src/chains.js?t=${Date.now()}-${Math.random()}`);
+  return mod.getPrices;
+}
+
+test('coinbase alone prices all three coins (rates are inverted)', async () => {
+  stubPrices({ 'api.coinbase.com': COINBASE });
+  const p = await (await freshGetPrices())();
+  assert.ok(Math.abs(p.solana - 1 / 0.0136) < 1e-6);
+  assert.ok(Math.abs(p.ethereum - 1 / 0.000549) < 1e-6);
+  assert.ok(Math.abs(p.binancecoin - 1 / 0.001686) < 1e-6);
+});
+
+test('the exact Render failure (coingecko 429 + binance 451) is survived via binance.us', async () => {
+  stubPrices({ 'api.coinbase.com': 'fail', 'api.binance.us': BINANCE_US, 'api.coingecko.com': 429, 'api.binance.com': 451 });
+  const p = await (await freshGetPrices())();
+  assert.deepEqual(p, { solana: 73.64, ethereum: 1822.63, binancecoin: 593 });
+});
+
+test('a partial source (kraken, no BNB) is merged with a later one', async () => {
+  stubPrices({ 'api.coinbase.com': 'fail', 'api.binance.us': 'fail', 'api.coingecko.com': 429, 'api.kraken.com': KRAKEN, 'api.binance.com': [{ symbol: 'BNBUSDT', price: '590' }] });
+  const p = await (await freshGetPrices())();
+  assert.equal(p.solana, 73.61);
+  assert.equal(p.ethereum, 1821.82);
+  assert.equal(p.binancecoin, 590);
+});
+
+test('a bad value from one source does not poison the merge', async () => {
+  stubPrices({ 'api.coinbase.com': { data: { rates: { SOL: '0', ETH: 'nope', BNB: '-1' } } }, 'api.binance.us': BINANCE_US });
+  const p = await (await freshGetPrices())();
+  assert.deepEqual(p, { solana: 73.64, ethereum: 1822.63, binancecoin: 593 });
+});
+
+test('the price feed fails closed when no source can price a coin', async () => {
+  stubPrices({ 'api.kraken.com': KRAKEN }); // SOL + ETH only, everything else down
+  await assert.rejects(() => freshGetPrices().then((f) => f()), /No price for BNB/);
+});
+
+test('the price feed fails closed when nothing is reachable', async () => {
   globalThis.fetch = async () => { throw new Error('blocked'); };
-  await assert.rejects(() => getPrices(), /No price feed available/);
+  await assert.rejects(() => freshGetPrices().then((f) => f()), /No price for SOL, ETH, BNB/);
 });
