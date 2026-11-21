@@ -15,8 +15,9 @@ Two requirements, both enforced before the bot grants the channel-unlocking **Tr
 
 - **Referral (mandatory, first):** the member signs up through your referral link and posts a
   screenshot in #verify. A mod gives them the **Referral Verified** role. (Set its ID as
-  `REQUIRE_ROLE_ID`.) Desktop members are pointed at **Padre** (`REFERRAL_URL`), phone members at
-  **FOMO** (`FOMO_URL`) or the **pump.fun** app with a referral code (`PUMPFUN_URL` / `PUMPFUN_CODE`).
+  `REQUIRE_ROLE_ID`.) Three options, each shown with its link **and** referral code: **pump.fun** first
+  (PC or phone, `PUMPFUN_URL` / `PUMPFUN_CODE`), then **Padre** for desktop (`REFERRAL_URL` / `PADRE_CODE`)
+  and **FOMO** for phone (`FOMO_URL` / `FOMO_CODE`).
 - **$1,000+ in native coins:** the member runs **`/verify`**, links a Solana wallet, an EVM wallet,
   or both, and **signs a message** with each (read-only — no transaction, no seed phrase). The bot
   reads the native balance of every linked address on every supported chain, prices it in USD, and
@@ -49,9 +50,9 @@ ETH means what it says.
 | `MAX_MEMBERS` | `100` | Free spots. `0` = unlimited. **Set this to `50` to match the 50-seat story.** |
 | `VERIFY_OPEN` | `false` | Launch gate. Flip to `true` on release day. |
 | `REQUIRE_ROLE_ID` | — | Referral Verified role. Blank = no referral step. |
-| `REFERRAL_URL` | Padre link | Shown to members trading on a PC / terminal. |
-| `FOMO_URL` | FOMO link | Shown to members trading on their phone. |
-| `PUMPFUN_URL` / `PUMPFUN_CODE` | pump.fun profile link / `RSSCABAL` | Third option: download the pump.fun app and enter the referral code. Blank URL hides it. |
+| `PUMPFUN_URL` / `PUMPFUN_CODE` | pump.fun profile link / `RSSCABAL` | Listed first; PC or phone. Members download the app and enter the code. Blank URL hides it. |
+| `REFERRAL_URL` / `PADRE_CODE` | Padre link / `rss` | Shown for PC / terminal traders, with the code next to the link. |
+| `FOMO_URL` / `FOMO_CODE` | FOMO link / `RSScabal` | Shown for phone traders, with the code next to the link. |
 | `TICKET_STAFF_ROLE_ID` | — | Extra role (besides admins) that can see and approve tickets. |
 | `LOG_CHANNEL_ID` | — | Private channel where every verify attempt (pass/fail + why), ticket event and bot start is posted. The bot needs View + Send there. |
 | `SESSION_SECRET` | — | Long random string; signs the one-time verify links. |
