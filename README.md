@@ -52,6 +52,7 @@ ETH means what it says.
 | `REFERRAL_URL` | Padre link | Shown to members trading on a PC / terminal. |
 | `FOMO_URL` | FOMO link | Shown to members trading on their phone. |
 | `TICKET_STAFF_ROLE_ID` | — | Extra role (besides admins) that can see and approve tickets. |
+| `LOG_CHANNEL_ID` | — | Private channel where every verify attempt (pass/fail + why), ticket event and bot start is posted. The bot needs View + Send there. |
 | `SESSION_SECRET` | — | Long random string; signs the one-time verify links. |
 | `BASE_URL` | localhost | Public HTTPS URL of this service. |
 | `RPC_URL` | public Solana RPC | Solana RPC. Use a Helius/QuickNode key for a launch. |
@@ -107,6 +108,10 @@ to post the Verify button, or members can just use **`/verify`**.
 ```bash
 node scripts/check.js 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
+
+## Owner visibility
+
+With `LOG_CHANNEL_ID` set, the bot posts an embed for every verification attempt — new Trencher (with wallets, holdings, seats left), below-threshold bounces with the exact USD, bad signatures, wallet-reuse attempts, missing referral role, full house — plus ticket opened/approved/closed. Admins can run **`/stats`** any time for live counts: Trenchers vs seats, members, Referral Verified, wallets linked, open tickets, price feed health.
 
 ## Health endpoint
 
