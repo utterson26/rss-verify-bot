@@ -51,6 +51,8 @@ const {
   LOG_CHANNEL_ID,                   // optional: private channel where every verify attempt / ticket event is logged
   REFERRAL_URL = 'https://trade.padre.gg/rk/rss',   // desktop / terminal users
   FOMO_URL = 'https://fomo.family/r/RSScabal',       // mobile users
+  PUMPFUN_URL = 'https://pump.fun/u/RSSCABAL',       // pump.fun app users (enter the referral code)
+  PUMPFUN_CODE = 'RSSCABAL',
   RPC_URL = 'https://api.mainnet-beta.solana.com',
   BASE_URL = 'http://localhost:3000',
   SESSION_SECRET = 'change-me',
@@ -323,10 +325,11 @@ function panelRow() {
   );
 }
 
-// Desktop members sign up on Padre; phone members sign up on FOMO.
+// Desktop members sign up on Padre; phone members sign up on FOMO or the pump.fun app.
 function referralLines() {
   const lines = [`💻 **On a PC / using a terminal →** sign up on **Padre**: ${REFERRAL_URL}`];
   if (FOMO_URL) lines.push(`📱 **On your phone →** sign up on **FOMO**: ${FOMO_URL}`);
+  if (PUMPFUN_URL) lines.push(`🟢 **Pump.fun →** download the app and enter referral code **${PUMPFUN_CODE}**: ${PUMPFUN_URL}`);
   return lines.join('\n');
 }
 
