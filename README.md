@@ -16,7 +16,7 @@ Two requirements, both enforced before the bot grants the channel-unlocking **Tr
 - **Referral (mandatory, first):** the member signs up through your referral link and posts a
   screenshot in #verify. A mod gives them the **Referral Verified** role. (Set its ID as
   `REQUIRE_ROLE_ID`.) Desktop members are pointed at **Padre** (`REFERRAL_URL`), phone members at
-  **FOMO** (`FOMO_URL`).
+  **FOMO** (`FOMO_URL`) or the **pump.fun** app with a referral code (`PUMPFUN_URL` / `PUMPFUN_CODE`).
 - **$1,000+ in native coins:** the member runs **`/verify`**, links a Solana wallet, an EVM wallet,
   or both, and **signs a message** with each (read-only — no transaction, no seed phrase). The bot
   reads the native balance of every linked address on every supported chain, prices it in USD, and
@@ -51,6 +51,7 @@ ETH means what it says.
 | `REQUIRE_ROLE_ID` | — | Referral Verified role. Blank = no referral step. |
 | `REFERRAL_URL` | Padre link | Shown to members trading on a PC / terminal. |
 | `FOMO_URL` | FOMO link | Shown to members trading on their phone. |
+| `PUMPFUN_URL` / `PUMPFUN_CODE` | pump.fun profile link / `RSSCABAL` | Third option: download the pump.fun app and enter the referral code. Blank URL hides it. |
 | `TICKET_STAFF_ROLE_ID` | — | Extra role (besides admins) that can see and approve tickets. |
 | `LOG_CHANNEL_ID` | — | Private channel where every verify attempt (pass/fail + why), ticket event and bot start is posted. The bot needs View + Send there. |
 | `SESSION_SECRET` | — | Long random string; signs the one-time verify links. |
