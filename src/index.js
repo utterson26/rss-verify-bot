@@ -49,10 +49,12 @@ const {
   REQUIRE_ROLE_ID,                  // optional: member must already have this role (e.g. "Referral Verified")
   TICKET_STAFF_ROLE_ID,             // optional: role (besides admins) that can see & approve tickets
   LOG_CHANNEL_ID,                   // optional: private channel where every verify attempt / ticket event is logged
-  REFERRAL_URL = 'https://trade.padre.gg/rk/rss',   // desktop / terminal users
-  FOMO_URL = 'https://fomo.family/r/RSScabal',       // mobile users
-  PUMPFUN_URL = 'https://pump.fun/u/RSSCABAL',       // pump.fun app users (enter the referral code)
+  PUMPFUN_URL = 'https://pump.fun/u/RSSCABAL',       // pump.fun app — PC or phone (listed first)
   PUMPFUN_CODE = 'RSSCABAL',
+  REFERRAL_URL = 'https://trade.padre.gg/rk/rss',   // Padre — desktop / terminal users
+  PADRE_CODE = 'rss',
+  FOMO_URL = 'https://fomo.family/r/RSScabal',       // FOMO — mobile users
+  FOMO_CODE = 'RSScabal',
   RPC_URL = 'https://api.mainnet-beta.solana.com',
   BASE_URL = 'http://localhost:3000',
   SESSION_SECRET = 'change-me',
@@ -325,11 +327,13 @@ function panelRow() {
   );
 }
 
-// Desktop members sign up on Padre; phone members sign up on FOMO or the pump.fun app.
+// Pump.fun first (works on PC and phone), then Padre for desktop, FOMO for phone.
+// Every line carries the link AND the referral code, so nobody has to dig for it.
 function referralLines() {
-  const lines = [`💻 **On a PC / using a terminal →** sign up on **Padre**: ${REFERRAL_URL}`];
-  if (FOMO_URL) lines.push(`📱 **On your phone →** sign up on **FOMO**: ${FOMO_URL}`);
-  if (PUMPFUN_URL) lines.push(`🟢 **Pump.fun →** download the app and enter referral code **${PUMPFUN_CODE}**: ${PUMPFUN_URL}`);
+  const lines = [];
+  if (PUMPFUN_URL) lines.push(`🟢 **Pump.fun (PC or phone) →** ${PUMPFUN_URL} · code: **${PUMPFUN_CODE}** — download the app and enter the code`);
+  lines.push(`💻 **Padre (PC / terminal) →** ${REFERRAL_URL} · code: **${PADRE_CODE}**`);
+  if (FOMO_URL) lines.push(`📱 **FOMO (phone) →** ${FOMO_URL} · code: **${FOMO_CODE}**`);
   return lines.join('\n');
 }
 
