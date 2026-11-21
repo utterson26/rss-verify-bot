@@ -48,6 +48,7 @@ const {
   DISCORD_TOKEN, GUILD_ID, ROLE_ID, VERIFY_CHANNEL_ID,
   REQUIRE_ROLE_ID,                  // optional: member must already have this role (e.g. "Referral Verified")
   TICKET_STAFF_ROLE_ID,             // optional: role (besides admins) that can see & approve tickets
+  LOG_CHANNEL_ID,                   // optional: private channel where every verify attempt / ticket event is logged
   REFERRAL_URL = 'https://trade.padre.gg/rk/rss',   // desktop / terminal users
   FOMO_URL = 'https://fomo.family/r/RSScabal',       // mobile users
   RPC_URL = 'https://api.mainnet-beta.solana.com',
@@ -111,6 +112,52 @@ async function grantRole(discordId) {
   return { granted: true };
 }
 
+
+// ── Owner visibility: audit log + live counts ───────────────────────────────
+// Every verification attempt (pass or fail, and why) and every ticket event is
+// posted as an embed to LOG_CHANNEL_ID, so the owner never has to guess who got
+// in, who bounced, and how many seats are left.
+const short = (a) => (a && a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
+const LOG_COLORS = { ok: 0x2dd478, fail: 0xff6b6b, info: 0x5865f2, warn: 0xffa848 };
+
+async function logEvent(level, title, fields = [], description = '') {
+  if (!LOG_CHANNEL_ID || !client.isReady()) return;
+  try {
+    const channel = await client.channels.fetch(LOG_CHANNEL_ID);
+    const embed = new EmbedBuilder().setTitle(title).setColor(LOG_COLORS[level] ?? LOG_COLORS.info).setTimestamp();
+    if (description) embed.setDescription(description);
+    const clean = fields.filter((f) => f && f.value !== undefined && f.value !== null && String(f.value).length)
+      .map((f) => ({ name: f.name, value: String(f.value).slice(0, 1000), inline: f.inline ?? true }));
+    if (clean.length) embed.addFields(clean);
+    await channel.send({ embeds: [embed] });
+  } catch (e) {
+    console.error('log channel send failed:', e.message);
+  }
+}
+
+/** Live numbers for /stats and for the success log line. */
+async function getCounts() {
+  const guild = await client.guilds.fetch(GUILD_ID);
+  await guild.members.fetch();
+  const trencher = await guild.roles.fetch(ROLE_ID);
+  const referral = REQUIRE_ROLE_ID ? await guild.roles.fetch(REQUIRE_ROLE_ID).catch(() => null) : null;
+  const db = loadDB();
+  const openTickets = guild.channels.cache.filter((c) => c.type === ChannelType.GuildText && /^ticket:/.test(c.topic || '')).size;
+  const openSupport = guild.channels.cache.filter((c) => c.type === ChannelType.GuildText && /^support:/.test(c.topic || '')).size;
+  return {
+    members: guild.memberCount,
+    trenchers: trencher ? trencher.members.size : 0,
+    referralVerified: referral ? referral.members.size : null,
+    walletsLinked: Object.keys(db).length,
+    accountsLinked: new Set(Object.values(db)).size,
+    openTickets, openSupport,
+  };
+}
+
+function seatsLine(c) {
+  return MAX_MEMBERS > 0 ? `${c.trenchers}/${MAX_MEMBERS} (${Math.max(0, MAX_MEMBERS - c.trenchers)} left)` : `${c.trenchers} (no cap)`;
+}
+
 // ── Web verifier ────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
@@ -145,6 +192,10 @@ app.post('/api/verify', async (req, res) => {
     if (usedNonces.has(payload.nonce)) return res.status(400).json({ ok: false, error: 'This link was already used. Run /verify again.' });
 
     const message = challengeMessage(payload);
+    const who = `<@${payload.id}> (${payload.id})`;
+    // One log line per attempt, whatever the outcome.
+    const walletField = (ws) => ws.map((w) => `${w.kind === 'solana' ? 'SOL' : 'EVM'} ${short(w.address)}`).join('\n');
+    const bounce = (reason, extra = []) => logEvent('fail', '❌ Verify failed', [{ name: 'Member', value: who, inline: false }, { name: 'Reason', value: reason, inline: false }, ...extra]);
 
     // Accept { solana:{publicKey,signature}, evm:{address,signature} }.
     // Older clients posted { publicKey, signature } at the top level — still works.
@@ -166,6 +217,7 @@ app.post('/api/verify', async (req, res) => {
         wallets.push({ kind: 'evm', address });
       }
     } catch (e) {
+      bounce(`Signature check failed — ${e.message}`);
       return res.status(400).json({ ok: false, error: e.message });
     }
 
@@ -174,6 +226,7 @@ app.post('/api/verify', async (req, res) => {
     for (const w of wallets) {
       const owner = db[dbKey(w.address)];
       if (owner && owner !== payload.id) {
+        bounce(`Wallet already linked to another account: <@${owner}>`, [{ name: 'Wallets', value: walletField(wallets), inline: false }]);
         return res.status(400).json({ ok: false, error: 'One of these wallets is already linked to another Discord account.' });
       }
     }
@@ -183,6 +236,7 @@ app.post('/api/verify', async (req, res) => {
     try { prices = await getPrices(); }
     catch (e) {
       console.error('price feed down:', e.message);
+      logEvent('warn', '⚠️ Price feed down', [{ name: 'Member', value: who, inline: false }, { name: 'Error', value: e.message, inline: false }]);
       return res.status(503).json({ ok: false, error: 'Our price feed is temporarily unreachable, so we can\'t value your wallet right now. Try again in a few minutes.' });
     }
 
@@ -197,6 +251,7 @@ app.post('/api/verify', async (req, res) => {
         degraded.push(...r.failed);
       } catch (e) {
         console.error(`balance read failed for ${w.address}:`, e.message);
+        logEvent('warn', '⚠️ Balance read failed', [{ name: 'Member', value: who, inline: false }, { name: 'Wallet', value: `${w.kind} ${short(w.address)}` }, { name: 'Error', value: e.message, inline: false }]);
         return res.status(503).json({ ok: false, error: 'We couldn\'t read your balance right now — the chain node is not responding. Try again in a few minutes.' });
       }
     }
@@ -205,6 +260,11 @@ app.post('/api/verify', async (req, res) => {
     // someone away over a fraction of a cent at the line.
     const total = totalUsd(holdings);
     if (total < MIN_USD - 0.01) {
+      bounce(`Below threshold — holds $${total.toFixed(2)}, needs ${usd(MIN_USD)}`, [
+        { name: 'Wallets', value: walletField(wallets), inline: false },
+        { name: 'Holdings', value: describeHoldings(holdings) || '(nothing)', inline: false },
+        ...(degraded.length ? [{ name: 'Unreachable chains', value: degraded.join(', '), inline: false }] : []),
+      ]);
       const detail = holdings.length ? ` (${describeHoldings(holdings)})` : '';
       const note = degraded.length ? ` We couldn't reach ${degraded.join(' and ')} just now — if you hold there, try again shortly.` : '';
       return res.status(200).json({
@@ -217,14 +277,23 @@ app.post('/api/verify', async (req, res) => {
     // 4) Grant the role (referral prerequisite + "first N free" cap) and record the wallets.
     const result = await grantRole(payload.id);
     if (result.needsPrereq) {
+      bounce(`Balance OK ($${total.toFixed(2)}) but no Referral Verified role yet`, [{ name: 'Wallets', value: walletField(wallets), inline: false }]);
       return res.status(200).json({ ok: false, error: 'You still need the Referral Verified role. Open a ticket in the verify channel, post your signup screenshot, and a mod will approve you — then verify your wallet again.' });
     }
     if (result.full) {
+      bounce(`Balance OK ($${total.toFixed(2)}) but all ${MAX_MEMBERS} free seats are taken`, [{ name: 'Wallets', value: walletField(wallets), inline: false }]);
       return res.status(200).json({ ok: false, error: `The first ${MAX_MEMBERS} spots are full — free entry has closed.` });
     }
     usedNonces.add(payload.nonce);
     for (const w of wallets) db[dbKey(w.address)] = payload.id;
     saveDB(db);
+    getCounts().then((c) => logEvent('ok', result.already ? '✅ Re-verified (already Trencher)' : '✅ New Trencher', [
+      { name: 'Member', value: who, inline: false },
+      { name: 'Total', value: `$${total.toFixed(2)}` },
+      { name: 'Seats', value: seatsLine(c) },
+      { name: 'Wallets', value: walletField(wallets), inline: false },
+      { name: 'Holdings', value: describeHoldings(holdings), inline: false },
+    ])).catch((e) => console.error('log after grant failed:', e.message));
     return res.json({ ok: true, usd: total, holdings, already: result.already });
   } catch (e) {
     console.error('verify error:', e);
@@ -242,6 +311,8 @@ const commands = [
   new SlashCommandBuilder().setName('setup').setDescription('(Admin) Post the Verify Wallet button in this channel.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
   new SlashCommandBuilder().setName('supportpanel').setDescription('(Admin) Post the "Open a Ticket" support button in this channel.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder().setName('stats').setDescription('(Admin) Live numbers: Trenchers, seats left, tickets, wallets, price feed.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 ].map(c => c.toJSON());
 
@@ -320,6 +391,7 @@ async function openTicket(interaction) {
     new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
   );
   await channel.send({ content: `<@${user.id}>`, embeds: [embed], components: [row] });
+  logEvent('info', '🎫 Referral ticket opened', [{ name: 'Member', value: `<@${user.id}> (${user.id})` }, { name: 'Channel', value: `<#${channel.id}>` }]);
   return interaction.editReply({ content: `✅ Your private ticket is open: <#${channel.id}> — post your screenshot there.` });
 }
 
@@ -341,6 +413,7 @@ async function approveTicket(interaction) {
     return interaction.reply({ content: 'That member seems to have left the server.', flags: MessageFlags.Ephemeral });
   }
   await member.roles.add(REQUIRE_ROLE_ID, 'Referral proof approved via ticket');
+  logEvent('ok', '🟢 Referral approved', [{ name: 'Member', value: `<@${openerId}> (${openerId})` }, { name: 'Approved by', value: `<@${interaction.user.id}>` }]);
   return interaction.reply({ content: `✅ Approved — <@${openerId}> now has **Referral Verified** and can hit **Verify Wallet** to finish. You can close this ticket.` });
 }
 
@@ -350,6 +423,7 @@ async function closeTicket(interaction) {
     return interaction.reply({ content: 'Only staff can close tickets.', flags: MessageFlags.Ephemeral });
   }
   await interaction.reply({ content: '🔒 Closing this ticket in 5 seconds…' });
+  logEvent('info', '🔒 Ticket closed', [{ name: 'Channel', value: `#${interaction.channel?.name}` }, { name: 'Closed by', value: `<@${interaction.user.id}>` }]);
   setTimeout(() => interaction.channel?.delete('Ticket closed').catch(() => {}), 5000);
 }
 
@@ -427,6 +501,14 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
   console.log('Slash commands registered.');
+  if (LOG_CHANNEL_ID) {
+    getCounts().then((c) => logEvent('info', '🟢 Bot online', [
+      { name: 'Trenchers (seats)', value: seatsLine(c) },
+      { name: 'Verification', value: VERIFY_OPEN ? `open · ${usd(MIN_USD)}` : 'closed' },
+    ])).catch(() => {});
+  } else {
+    console.warn('LOG_CHANNEL_ID not set — verify attempts will not be posted to Discord.');
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -437,6 +519,27 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'open_support') return openSupportTicket(interaction);
     if (interaction.isButton() && interaction.customId === 'approve_ticket') return approveTicket(interaction);
     if (interaction.isButton() && interaction.customId === 'close_ticket') return closeTicket(interaction);
+    if (interaction.isChatInputCommand() && interaction.commandName === 'stats') {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const c = await getCounts();
+      let feed;
+      try { const p = await getPrices(); feed = `✅ SOL $${p.solana.toFixed(2)} · ETH $${p.ethereum.toFixed(0)} · BNB $${p.binancecoin.toFixed(0)}`; }
+      catch (e) { feed = `❌ down — ${e.message.slice(0, 120)}`; }
+      const embed = new EmbedBuilder()
+        .setTitle('📊 RSS live stats')
+        .setColor(0x2dd478)
+        .addFields(
+          { name: 'Trenchers (seats)', value: seatsLine(c), inline: true },
+          { name: 'Server members', value: String(c.members), inline: true },
+          { name: 'Referral Verified', value: c.referralVerified === null ? 'n/a' : String(c.referralVerified), inline: true },
+          { name: 'Wallets linked', value: `${c.walletsLinked} wallets · ${c.accountsLinked} accounts`, inline: true },
+          { name: 'Open tickets', value: `${c.openTickets} verification · ${c.openSupport} support`, inline: true },
+          { name: 'Verification', value: VERIFY_OPEN ? `🟢 open · threshold ${usd(MIN_USD)}` : '🔒 closed', inline: true },
+          { name: 'Price feed', value: feed, inline: false },
+        )
+        .setTimestamp();
+      return interaction.editReply({ embeds: [embed] });
+    }
     if (interaction.isChatInputCommand() && interaction.commandName === 'supportpanel') {
       const embed = new EmbedBuilder()
         .setTitle('🎫 Need help?')
